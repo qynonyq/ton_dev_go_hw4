@@ -272,7 +272,7 @@ func processTxDedustSwap(tx *tlb.Transaction) ([]storage.DedustSwap, error) {
 			continue
 		}
 
-		var dse structures.DedustSwapEvent
+		var dse structures.DedustEventSwap
 		if err := tlb.LoadFromCell(&dse, extOut.Body.BeginParse()); err != nil {
 			continue
 		}
@@ -348,7 +348,7 @@ func processTxDedustDeposit(tx *tlb.Transaction) ([]storage.DedustDeposit, error
 			continue
 		}
 
-		var dde structures.DedustDepositEvent
+		var dde structures.DedustEventDeposit
 		if err := tlb.LoadFromCell(&dde, extOut.Body.BeginParse()); err != nil {
 			continue
 		}

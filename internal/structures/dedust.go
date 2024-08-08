@@ -36,23 +36,21 @@ func (a DedustAssetJetton) AsNative() DedustAssetNative { return DedustAssetNati
 func (a DedustAssetJetton) AsJetton() DedustAssetJetton { return a }
 
 type (
-	DedustSwapEvent struct {
+	DedustEventSwap struct {
 		_         tlb.Magic   `tlb:"#9c610de3"`
 		AssetIn   DedustAsset `tlb:"[DedustAssetNative,DedustAssetJetton]"`
 		AssetOut  DedustAsset `tlb:"[DedustAssetNative,DedustAssetJetton]"`
 		AmountIn  tlb.Coins   `tlb:"."`
 		AmountOut tlb.Coins   `tlb:"."`
-		ExtraInfo ExtraInfo   `tlb:"^"`
+		ExtraInfo struct {
+			SenderAddr   *address.Address `tlb:"addr"`
+			ReferralAddr *address.Address `tlb:"addr"`
+			Reserve0     tlb.Coins        `tlb:"."`
+			Reserve1     tlb.Coins        `tlb:"."`
+		} `tlb:"^"`
 	}
 
-	ExtraInfo struct {
-		SenderAddr   *address.Address `tlb:"addr"`
-		ReferralAddr *address.Address `tlb:"addr"`
-		Reserve0     tlb.Coins        `tlb:"."`
-		Reserve1     tlb.Coins        `tlb:"."`
-	}
-
-	DedustDepositEvent struct {
+	DedustEventDeposit struct {
 		_          tlb.Magic        `tlb:"#b544f4a4"`
 		SenderAddr *address.Address `tlb:"addr"`
 		Amount0    tlb.Coins        `tlb:"."`
