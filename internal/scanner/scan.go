@@ -4,11 +4,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/qynonyq/ton_dev_go_hw4/internal/app"
-	"github.com/qynonyq/ton_dev_go_hw4/internal/storage"
 	"github.com/sirupsen/logrus"
 	"github.com/xssnick/tonutils-go/liteclient"
 	"github.com/xssnick/tonutils-go/ton"
+
+	"github.com/qynonyq/ton_dev_go_hw4/internal/app"
+	"github.com/qynonyq/ton_dev_go_hw4/internal/storage"
 )
 
 type Scanner struct {
@@ -20,7 +21,7 @@ type Scanner struct {
 
 func NewScanner(ctx context.Context, cfg *liteclient.GlobalConfig) (*Scanner, error) {
 	client := liteclient.NewConnectionPool()
-	if err := client.AddConnectionsFromConfigUrl(ctx, app.TestnetCfgURL); err != nil {
+	if err := client.AddConnectionsFromConfigUrl(ctx, app.MainnetCfgURL); err != nil {
 		return nil, err
 	}
 	api := ton.NewAPIClient(client)

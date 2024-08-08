@@ -8,6 +8,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shopspring/decimal"
+
+	"github.com/qynonyq/ton_dev_go_hw4/internal/storage"
+	"github.com/qynonyq/ton_dev_go_hw4/internal/structures"
+
 	"github.com/sirupsen/logrus"
 	"github.com/xssnick/tonutils-go/address"
 	"github.com/xssnick/tonutils-go/tlb"
@@ -16,7 +21,6 @@ import (
 	"gopkg.in/tomb.v2"
 
 	"github.com/qynonyq/ton_dev_go_hw4/internal/app"
-	"github.com/qynonyq/ton_dev_go_hw4/internal/structures"
 )
 
 func (s *Scanner) processBlocks(ctx context.Context) {
@@ -105,9 +109,10 @@ func (s *Scanner) processMcBlock(ctx context.Context, master *ton.BlockIDExt) er
 	}
 
 	var (
-		tmb  tomb.Tomb
-		wg   sync.WaitGroup
-		txDB = app.DB.Begin()
+		tmb tomb.Tomb
+		wg  sync.WaitGroup
+		//txDB = app.DB.Begin()
+		events = make([]storage.DedustSwap, 0, len(txs))
 	)
 	// process transactions
 	tmb.Go(func() error {
@@ -122,9 +127,12 @@ func (s *Scanner) processMcBlock(ctx context.Context, master *ton.BlockIDExt) er
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				if err := s.processTx(tx); err != nil {
+				ee, err := processTx(tx)
+				if err != nil {
 					tmb.Kill(err)
+					return
 				}
+				events = append(events, ee...)
 			}()
 		}
 		wg.Wait()
@@ -133,13 +141,22 @@ func (s *Scanner) processMcBlock(ctx context.Context, master *ton.BlockIDExt) er
 
 	if err := tmb.Wait(); err != nil {
 		logrus.Errorf("[SCN] failed to process transactions: %s", err)
-		txDB.Rollback()
 		// start with next block, otherwise process will get stuck
 		s.lastBlock.SeqNo++
 		return err
 	}
 
+	txDB := app.DB.Begin()
+
+	for _, e := range events {
+		if err := txDB.Create(&e).Error; err != nil {
+			txDB.Rollback()
+			return err
+		}
+	}
+
 	if err := s.addBlock(master, txDB); err != nil {
+		txDB.Rollback()
 		return err
 	}
 
@@ -201,11 +218,13 @@ func (s *Scanner) getTxsFromShard(ctx context.Context, shard *ton.BlockIDExt) ([
 					txShort.LT,
 				)
 				if err != nil {
-					if strings.Contains(err.Error(), "is not in db") {
+					if strings.Contains(err.Error(), "is not in db") ||
+						strings.Contains(err.Error(), "is not applied") {
 						return nil
 					}
 
 					logrus.Errorf("[SCN] failed to load tx: %s", err)
+
 					return err
 				}
 
@@ -225,40 +244,78 @@ func (s *Scanner) getTxsFromShard(ctx context.Context, shard *ton.BlockIDExt) ([
 	return txs, nil
 }
 
-func (s *Scanner) processTx(tx *tlb.Transaction) error {
-	if tx.IO.In.MsgType != tlb.MsgTypeInternal {
-		return nil
+func processTx(tx *tlb.Transaction) ([]storage.DedustSwap, error) {
+	if tx.IO.Out == nil {
+		return nil, nil
 	}
 
-	msgIn := tx.IO.In.AsInternal()
-	if msgIn.Body == nil {
-		return nil
-	}
-
-	var jn structures.JettonNotify
-	if err := tlb.LoadFromCell(&jn, msgIn.Body.BeginParse()); err != nil {
-		// invalid transaction, magic is not correct (opcode)
-		return nil
-	}
-	if jn.FwdPayload == nil {
-		return nil
-	}
-
-	fwdPayload := jn.FwdPayload.BeginParse()
-	op, err := fwdPayload.LoadUInt(32)
+	mmOut, err := tx.IO.Out.ToSlice()
 	if err != nil {
-		return nil
-	}
-	if op != 0 {
-		logrus.Debugf("[SCN] invalid opcode: %x", op)
-		return nil
-	}
-	comment, err := fwdPayload.LoadStringSnake()
-	if err != nil {
-		return fmt.Errorf("[JTN] failed to parse forward payload comment: %s", err)
+		return nil, nil
 	}
 
-	logrus.Infof("[JTN] %s from %s to %s, comment: %+v", jn.Amount, jn.Sender, msgIn.DstAddr, comment)
+	events := make([]storage.DedustSwap, 0, len(mmOut))
 
-	return nil
+	for _, m := range mmOut {
+		if m.MsgType != tlb.MsgTypeExternalOut {
+			continue
+		}
+
+		extOut := m.AsExternalOut()
+		if extOut.Body == nil {
+			continue
+		}
+
+		var dse structures.DedustSwapEvent
+		if err := tlb.LoadFromCell(&dse, extOut.Body.BeginParse()); err != nil {
+			continue
+		}
+
+		var (
+			amountIn  string
+			amountOut string
+		)
+
+		// assetIn
+		if dse.AssetIn.Type() == "native" {
+			amountIn = dse.AmountIn.String() + " TON"
+		} else {
+			jettonAddr := dse.AssetIn.AsJetton()
+			amountIn = fmt.Sprintf("%s JETTON root [%s]",
+				dse.AmountIn,
+				address.NewAddress(0, byte(jettonAddr.WorkchainID), jettonAddr.AddressData))
+		}
+
+		// assetOut
+		if dse.AssetOut.Type() == "native" {
+			amountOut = dse.AmountOut.String() + " TON"
+		} else {
+			jettonAddr := dse.AssetOut.AsJetton()
+			amountOut = fmt.Sprintf("%s JETTON root [%s]",
+				dse.AmountOut,
+				address.NewAddress(0, byte(jettonAddr.WorkchainID), jettonAddr.AddressData))
+		}
+
+		logrus.Infof("[DDST] new swap!")
+		logrus.Infof("[DDST] from: %s", dse.ExtraInfo.SenderAddr.String())
+		logrus.Infof("[DDST] amount input: %s", amountIn)
+		logrus.Infof("[DDST] amount output: %s\n\n", amountOut)
+
+		dedustSwap := storage.DedustSwap{
+			PoolAddress:   extOut.SrcAddr.String(),
+			AssetIn:       dse.AssetIn.Type(),
+			AmountIn:      decimal.NewFromBigInt(dse.AmountIn.Nano(), 0),
+			AssetOut:      dse.AssetOut.Type(),
+			AmountOut:     decimal.NewFromBigInt(dse.AmountOut.Nano(), 0),
+			SenderAddress: dse.ExtraInfo.SenderAddr.String(),
+			Reserve0:      decimal.NewFromBigInt(dse.ExtraInfo.Reserve0.Nano(), 0),
+			Reserve1:      decimal.NewFromBigInt(dse.ExtraInfo.Reserve1.Nano(), 0),
+			CreatedAt:     time.Unix(int64(extOut.CreatedAt), 0),
+			ProcessedAt:   time.Now(),
+		}
+
+		events = append(events, dedustSwap)
+	}
+
+	return events, nil
 }

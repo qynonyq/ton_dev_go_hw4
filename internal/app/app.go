@@ -18,7 +18,7 @@ func InitApp() (*App, error) {
 		return nil, err
 	}
 
-	app := App{Cfg: cfg}
+	initTLB()
 
-	return &app, nil
+	return &App{Cfg: cfg}, nil
 }

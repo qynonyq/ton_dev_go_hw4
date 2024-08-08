@@ -19,7 +19,10 @@ func run() error {
 	}
 
 	dbTx := app.DB.Begin()
-	if err := dbTx.AutoMigrate(&storage.Block{}); err != nil {
+	if err := dbTx.AutoMigrate(
+		&storage.Block{},
+		&storage.DedustSwap{},
+	); err != nil {
 		dbTx.Rollback()
 		return err
 	}
