@@ -34,4 +34,16 @@ type (
 		CreatedAt     time.Time
 		ProcessedAt   time.Time
 	}
+
+	DedustWithdrawal struct {
+		ID            uint64 `gorm:"primaryKey;autoIncrement:true;"`
+		SenderAddress string
+		Liquidity     decimal.Decimal
+		Amount0       decimal.Decimal
+		Amount1       decimal.Decimal
+		Reserve0      decimal.Decimal
+		Reserve1      decimal.Decimal
+		CreatedAt     time.Time
+		ProcessedAt   time.Time
+	}
 )

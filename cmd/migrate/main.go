@@ -23,6 +23,7 @@ func run() error {
 		&storage.Block{},
 		&storage.DedustSwap{},
 		&storage.DedustDeposit{},
+		&storage.DedustWithdrawal{},
 	); err != nil {
 		dbTx.Rollback()
 		return err

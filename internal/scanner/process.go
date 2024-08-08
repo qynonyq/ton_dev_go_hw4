@@ -113,7 +113,8 @@ func (s *Scanner) processMcBlock(ctx context.Context, master *ton.BlockIDExt) er
 		wg  sync.WaitGroup
 		mu  sync.Mutex
 		//events = make([]storage.DedustSwap, 0, len(txs))
-		events = make([]storage.DedustDeposit, 0, len(txs))
+		//events = make([]storage.DedustDeposit, 0, len(txs))
+		events = make([]storage.DedustWithdrawal, 0, len(txs))
 	)
 	// process transactions
 	tmb.Go(func() error {
@@ -130,7 +131,8 @@ func (s *Scanner) processMcBlock(ctx context.Context, master *ton.BlockIDExt) er
 				defer wg.Done()
 
 				//ee, err := processTxDedustSwap(tx)
-				ee, err := processTxDedustDeposit(tx)
+				//ee, err := processTxDedustDeposit(tx)
+				ee, err := processTxDedustWithdrawal(tx)
 				if err != nil {
 					tmb.Kill(err)
 					return
@@ -272,8 +274,8 @@ func processTxDedustSwap(tx *tlb.Transaction) ([]storage.DedustSwap, error) {
 			continue
 		}
 
-		var dse structures.DedustEventSwap
-		if err := tlb.LoadFromCell(&dse, extOut.Body.BeginParse()); err != nil {
+		var des structures.DedustEventSwap
+		if err := tlb.LoadFromCell(&des, extOut.Body.BeginParse()); err != nil {
 			continue
 		}
 
@@ -283,39 +285,39 @@ func processTxDedustSwap(tx *tlb.Transaction) ([]storage.DedustSwap, error) {
 		)
 
 		// assetIn
-		if dse.AssetIn.Type() == "native" {
-			amountIn = dse.AmountIn.String() + " TON"
+		if des.AssetIn.Type() == "native" {
+			amountIn = des.AmountIn.String() + " TON"
 		} else {
-			jettonAddr := dse.AssetIn.AsJetton()
+			jettonAddr := des.AssetIn.AsJetton()
 			amountIn = fmt.Sprintf("%s JETTON root [%s]",
-				dse.AmountIn,
+				des.AmountIn,
 				address.NewAddress(0, byte(jettonAddr.WorkchainID), jettonAddr.AddressData))
 		}
 
 		// assetOut
-		if dse.AssetOut.Type() == "native" {
-			amountOut = dse.AmountOut.String() + " TON"
+		if des.AssetOut.Type() == "native" {
+			amountOut = des.AmountOut.String() + " TON"
 		} else {
-			jettonAddr := dse.AssetOut.AsJetton()
+			jettonAddr := des.AssetOut.AsJetton()
 			amountOut = fmt.Sprintf("%s JETTON root [%s]",
-				dse.AmountOut,
+				des.AmountOut,
 				address.NewAddress(0, byte(jettonAddr.WorkchainID), jettonAddr.AddressData))
 		}
 
 		logrus.Infof("[DDST] new swap")
-		logrus.Infof("[DDST] from: %s", dse.ExtraInfo.SenderAddr.String())
+		logrus.Infof("[DDST] from: %s", des.ExtraInfo.SenderAddr.String())
 		logrus.Infof("[DDST] amount input: %s", amountIn)
 		logrus.Infof("[DDST] amount output: %s\n\n", amountOut)
 
 		swap := storage.DedustSwap{
 			PoolAddress:   extOut.SrcAddr.String(),
-			AssetIn:       dse.AssetIn.Type(),
-			AmountIn:      decimal.NewFromBigInt(dse.AmountIn.Nano(), 0),
-			AssetOut:      dse.AssetOut.Type(),
-			AmountOut:     decimal.NewFromBigInt(dse.AmountOut.Nano(), 0),
-			SenderAddress: dse.ExtraInfo.SenderAddr.String(),
-			Reserve0:      decimal.NewFromBigInt(dse.ExtraInfo.Reserve0.Nano(), 0),
-			Reserve1:      decimal.NewFromBigInt(dse.ExtraInfo.Reserve1.Nano(), 0),
+			AssetIn:       des.AssetIn.Type(),
+			AmountIn:      decimal.NewFromBigInt(des.AmountIn.Nano(), 0),
+			AssetOut:      des.AssetOut.Type(),
+			AmountOut:     decimal.NewFromBigInt(des.AmountOut.Nano(), 0),
+			SenderAddress: des.ExtraInfo.SenderAddr.String(),
+			Reserve0:      decimal.NewFromBigInt(des.ExtraInfo.Reserve0.Nano(), 0),
+			Reserve1:      decimal.NewFromBigInt(des.ExtraInfo.Reserve1.Nano(), 0),
 			CreatedAt:     time.Unix(int64(extOut.CreatedAt), 0),
 			ProcessedAt:   time.Now(),
 		}
@@ -348,29 +350,79 @@ func processTxDedustDeposit(tx *tlb.Transaction) ([]storage.DedustDeposit, error
 			continue
 		}
 
-		var dde structures.DedustEventDeposit
-		if err := tlb.LoadFromCell(&dde, extOut.Body.BeginParse()); err != nil {
+		var ded structures.DedustEventDeposit
+		if err := tlb.LoadFromCell(&ded, extOut.Body.BeginParse()); err != nil {
 			continue
 		}
 
 		logrus.Infof("[DDST] new deposit")
-		logrus.Infof("[DDST] from: %s", dde.SenderAddr)
-		logrus.Infof("[DDST] amount0: %s, amount1: %s", dde.Amount0, dde.Amount1)
-		logrus.Infof("[DDST] reserve0: %s, reserve1: %s", dde.Reserve0, dde.Reserve1)
-		logrus.Infof("[DDST] liquidity: %s\n\n", dde.Liquidity)
+		logrus.Infof("[DDST] from: %s", ded.SenderAddr)
+		logrus.Infof("[DDST] amount0: %s, amount1: %s", ded.Amount0, ded.Amount1)
+		logrus.Infof("[DDST] reserve0: %s, reserve1: %s", ded.Reserve0, ded.Reserve1)
+		logrus.Infof("[DDST] liquidity: %s\n\n", ded.Liquidity)
 
 		deposit := storage.DedustDeposit{
-			SenderAddress: dde.SenderAddr.String(),
-			Amount0:       decimal.NewFromBigInt(dde.Amount0.Nano(), 0),
-			Amount1:       decimal.NewFromBigInt(dde.Amount1.Nano(), 0),
-			Reserve0:      decimal.NewFromBigInt(dde.Reserve0.Nano(), 0),
-			Reserve1:      decimal.NewFromBigInt(dde.Reserve1.Nano(), 0),
-			Liquidity:     decimal.NewFromBigInt(dde.Liquidity.Nano(), 0),
+			SenderAddress: ded.SenderAddr.String(),
+			Amount0:       decimal.NewFromBigInt(ded.Amount0.Nano(), 0),
+			Amount1:       decimal.NewFromBigInt(ded.Amount1.Nano(), 0),
+			Reserve0:      decimal.NewFromBigInt(ded.Reserve0.Nano(), 0),
+			Reserve1:      decimal.NewFromBigInt(ded.Reserve1.Nano(), 0),
+			Liquidity:     decimal.NewFromBigInt(ded.Liquidity.Nano(), 0),
 			CreatedAt:     time.Unix(int64(extOut.CreatedAt), 0),
 			ProcessedAt:   time.Now(),
 		}
 
 		events = append(events, deposit)
+	}
+
+	return events, nil
+}
+
+func processTxDedustWithdrawal(tx *tlb.Transaction) ([]storage.DedustWithdrawal, error) {
+	if tx.IO.Out == nil {
+		return nil, nil
+	}
+
+	mmOut, err := tx.IO.Out.ToSlice()
+	if err != nil {
+		return nil, nil
+	}
+
+	events := make([]storage.DedustWithdrawal, 0, len(mmOut))
+
+	for _, m := range mmOut {
+		if m.MsgType != tlb.MsgTypeExternalOut {
+			continue
+		}
+
+		extOut := m.AsExternalOut()
+		if extOut.Body == nil {
+			continue
+		}
+
+		var dew structures.DedustEventWithdrawal
+		if err := tlb.LoadFromCell(&dew, extOut.Body.BeginParse()); err != nil {
+			continue
+		}
+
+		logrus.Infof("[DDST] new withdrawal")
+		logrus.Infof("[DDST] from: %s", dew.SenderAddr)
+		logrus.Infof("[DDST] liquidity: %s", dew.Liquidity)
+		logrus.Infof("[DDST] amount0: %s, amount1: %s", dew.Amount0, dew.Amount1)
+		logrus.Infof("[DDST] reserve0: %s, reserve1: %s\n\n", dew.Reserve0, dew.Reserve1)
+
+		withdrawal := storage.DedustWithdrawal{
+			SenderAddress: dew.SenderAddr.String(),
+			Liquidity:     decimal.NewFromBigInt(dew.Liquidity.Nano(), 0),
+			Amount0:       decimal.NewFromBigInt(dew.Amount0.Nano(), 0),
+			Amount1:       decimal.NewFromBigInt(dew.Amount1.Nano(), 0),
+			Reserve0:      decimal.NewFromBigInt(dew.Reserve0.Nano(), 0),
+			Reserve1:      decimal.NewFromBigInt(dew.Reserve1.Nano(), 0),
+			CreatedAt:     time.Unix(int64(extOut.CreatedAt), 0),
+			ProcessedAt:   time.Now(),
+		}
+
+		events = append(events, withdrawal)
 	}
 
 	return events, nil
