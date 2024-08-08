@@ -45,11 +45,20 @@ type (
 		ExtraInfo ExtraInfo   `tlb:"^"`
 	}
 
-	// TODO: maybe pointers needed
 	ExtraInfo struct {
-		SenderAddr   address.Address `tlb:"addr"`
-		ReferralAddr address.Address `tlb:"addr"`
-		Reserve0     tlb.Coins       `tlb:"."`
-		Reserve1     tlb.Coins       `tlb:"."`
+		SenderAddr   *address.Address `tlb:"addr"`
+		ReferralAddr *address.Address `tlb:"addr"`
+		Reserve0     tlb.Coins        `tlb:"."`
+		Reserve1     tlb.Coins        `tlb:"."`
+	}
+
+	DedustDepositEvent struct {
+		_          tlb.Magic        `tlb:"#b544f4a4"`
+		SenderAddr *address.Address `tlb:"addr"`
+		Amount0    tlb.Coins        `tlb:"."`
+		Amount1    tlb.Coins        `tlb:"."`
+		Reserve0   tlb.Coins        `tlb:"."`
+		Reserve1   tlb.Coins        `tlb:"."`
+		Liquidity  tlb.Coins        `tlb:"."`
 	}
 )

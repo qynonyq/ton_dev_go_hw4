@@ -111,8 +111,9 @@ func (s *Scanner) processMcBlock(ctx context.Context, master *ton.BlockIDExt) er
 	var (
 		tmb tomb.Tomb
 		wg  sync.WaitGroup
-		//txDB = app.DB.Begin()
-		events = make([]storage.DedustSwap, 0, len(txs))
+		mu  sync.Mutex
+		//events = make([]storage.DedustSwap, 0, len(txs))
+		events = make([]storage.DedustDeposit, 0, len(txs))
 	)
 	// process transactions
 	tmb.Go(func() error {
@@ -127,18 +128,23 @@ func (s *Scanner) processMcBlock(ctx context.Context, master *ton.BlockIDExt) er
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				ee, err := processTx(tx)
+
+				//ee, err := processTxDedustSwap(tx)
+				ee, err := processTxDedustDeposit(tx)
 				if err != nil {
 					tmb.Kill(err)
 					return
 				}
+
+				mu.Lock()
+				defer mu.Unlock()
 				events = append(events, ee...)
 			}()
 		}
 		wg.Wait()
+
 		return nil
 	})
-
 	if err := tmb.Wait(); err != nil {
 		logrus.Errorf("[SCN] failed to process transactions: %s", err)
 		// start with next block, otherwise process will get stuck
@@ -244,7 +250,7 @@ func (s *Scanner) getTxsFromShard(ctx context.Context, shard *ton.BlockIDExt) ([
 	return txs, nil
 }
 
-func processTx(tx *tlb.Transaction) ([]storage.DedustSwap, error) {
+func processTxDedustSwap(tx *tlb.Transaction) ([]storage.DedustSwap, error) {
 	if tx.IO.Out == nil {
 		return nil, nil
 	}
@@ -296,12 +302,12 @@ func processTx(tx *tlb.Transaction) ([]storage.DedustSwap, error) {
 				address.NewAddress(0, byte(jettonAddr.WorkchainID), jettonAddr.AddressData))
 		}
 
-		logrus.Infof("[DDST] new swap!")
+		logrus.Infof("[DDST] new swap")
 		logrus.Infof("[DDST] from: %s", dse.ExtraInfo.SenderAddr.String())
 		logrus.Infof("[DDST] amount input: %s", amountIn)
 		logrus.Infof("[DDST] amount output: %s\n\n", amountOut)
 
-		dedustSwap := storage.DedustSwap{
+		swap := storage.DedustSwap{
 			PoolAddress:   extOut.SrcAddr.String(),
 			AssetIn:       dse.AssetIn.Type(),
 			AmountIn:      decimal.NewFromBigInt(dse.AmountIn.Nano(), 0),
@@ -314,7 +320,57 @@ func processTx(tx *tlb.Transaction) ([]storage.DedustSwap, error) {
 			ProcessedAt:   time.Now(),
 		}
 
-		events = append(events, dedustSwap)
+		events = append(events, swap)
+	}
+
+	return events, nil
+}
+
+func processTxDedustDeposit(tx *tlb.Transaction) ([]storage.DedustDeposit, error) {
+	if tx.IO.Out == nil {
+		return nil, nil
+	}
+
+	mmOut, err := tx.IO.Out.ToSlice()
+	if err != nil {
+		return nil, nil
+	}
+
+	events := make([]storage.DedustDeposit, 0, len(mmOut))
+
+	for _, m := range mmOut {
+		if m.MsgType != tlb.MsgTypeExternalOut {
+			continue
+		}
+
+		extOut := m.AsExternalOut()
+		if extOut.Body == nil {
+			continue
+		}
+
+		var dde structures.DedustDepositEvent
+		if err := tlb.LoadFromCell(&dde, extOut.Body.BeginParse()); err != nil {
+			continue
+		}
+
+		logrus.Infof("[DDST] new deposit")
+		logrus.Infof("[DDST] from: %s", dde.SenderAddr)
+		logrus.Infof("[DDST] amount0: %s, amount1: %s", dde.Amount0, dde.Amount1)
+		logrus.Infof("[DDST] reserve0: %s, reserve1: %s", dde.Reserve0, dde.Reserve1)
+		logrus.Infof("[DDST] liquidity: %s\n\n", dde.Liquidity)
+
+		deposit := storage.DedustDeposit{
+			SenderAddress: dde.SenderAddr.String(),
+			Amount0:       decimal.NewFromBigInt(dde.Amount0.Nano(), 0),
+			Amount1:       decimal.NewFromBigInt(dde.Amount1.Nano(), 0),
+			Reserve0:      decimal.NewFromBigInt(dde.Reserve0.Nano(), 0),
+			Reserve1:      decimal.NewFromBigInt(dde.Reserve1.Nano(), 0),
+			Liquidity:     decimal.NewFromBigInt(dde.Liquidity.Nano(), 0),
+			CreatedAt:     time.Unix(int64(extOut.CreatedAt), 0),
+			ProcessedAt:   time.Now(),
+		}
+
+		events = append(events, deposit)
 	}
 
 	return events, nil

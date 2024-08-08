@@ -22,6 +22,7 @@ func run() error {
 	if err := dbTx.AutoMigrate(
 		&storage.Block{},
 		&storage.DedustSwap{},
+		&storage.DedustDeposit{},
 	); err != nil {
 		dbTx.Rollback()
 		return err
